@@ -38,17 +38,17 @@ PATHS = {
     "dino_pretraining": p("src", "wsi_branch", "dino_pretraining.py"),
     "dino_embedding": p("src", "wsi_branch", "dino_embedding.py"),
     "patch_clustering": p("src", "wsi_branch", "patch_clustering.py"),
-    "test_wsi_branch_batch": p("tests", "test_wsi_branch_batch.py"),
+    "test_wsi_branch_batch": None,
     "test_wsi_branch": p("tests", "test_wsi_branch.py"),
     "patch_embedding": p("src", "wsi_branch", "patch_embedding.py"),
-    "wsi_transformer_encoder": p("src", "wsi_branch", "transformer_encoder.py"),
+    "wsi_transformer_encoder": None,
     "test_wsi_reduction": p("tests", "test_wsi_reduction.py"),
     "wsi_branch": p("src", "wsi_branch", "wsi_branch.py"),
     "wsi_reduction": p("src", "wsi_branch", "wsi_reduction.py"),
     "contrastive": p("src", "gene_branch", "contrastive_loss.py"),
     "fusion": p("src", "fusion.py"),
-    "risk_head": p("src", "risk_head.py"),
-    "survival_loss": p("src", "survival_loss.py"),
+    "risk_head": p("scripts", "risk_head.py"),
+    "survival_loss": p("scripts", "survival_loss.py"),
     "train": p("scripts", "train.py"),
     "evaluate": p("scripts", "evaluate_best.py"),
     "results": p("scripts", "stage7_make_results.py"),
@@ -64,6 +64,14 @@ PATHS = {
 
 TRAIN_DIR = p("data", "processed", "training")
 MODEL_DIR = p("data", "processed", "model_checkpoints")
+
+# Hosted/demo mode: raw TCGA/WSI data and large checkpoints are intentionally
+# excluded from the public repository. The dashboard therefore falls back to
+# lightweight saved results and source-code evidence when those local artifacts
+# are unavailable (e.g. on Streamlit Community Cloud).
+DEMO_MODE = not (TRAIN_DIR.exists() and MODEL_DIR.exists())
+
+
 
 
 # ---------------------------------------------------------------------
@@ -153,6 +161,8 @@ def find_block(path, patterns, context_before=3, context_after=10):
 
 
 def show_code(path, patterns=None, title="Exact source code"):
+    if path is None:
+        return
     if not path.exists():
         st.warning(
             f"Source file not found at `{path.relative_to(ROOT)}`. "
@@ -187,7 +197,17 @@ def metric_row(items):
 
 
 def file_status(path):
-    return "✓ present" if path.exists() else "○ not found"
+    if path is None:
+        return "not included in public demo"
+    return "✓ present" if path.exists() else "not included in public demo"
+
+
+def local_data_notice(label="This local-only artifact"):
+    st.info(
+        f"{label} is intentionally excluded from the public GitHub repository. "
+        "The hosted dashboard uses the lightweight saved results, figures, and source code that are committed to the repository. "
+        "The full TCGA/WSI dataset and model checkpoints remain available only in the local research environment."
+    )
 
 
 # ---------------------------------------------------------------------
@@ -314,13 +334,13 @@ def render_visual_gallery():
         ),
         (
             "Stage 7 — Training / survival objective",
-            TRAIN_DIR / "training_vs_eval_loss.png",
-            "Training and evaluation loss trajectory recorded during the 500-epoch run."
+            None,
+            "The full training/checkpoint artifacts are local-only; the dashboard presents the verified Stage 7 metrics and training history description in the dedicated Stage 7 sections."
         ),
         (
             "Stage 7 — Patient risk ranking",
-            TRAIN_DIR / "stage7_risk_score_table.png",
-            "Risk-score result produced from the trained model, when the saved Stage 7 figure is available."
+            None,
+            "The trained model checkpoint and patient risk-score artifacts are local-only; the verified Stage 7 results are presented in the dedicated results section."
         ),
         (
             "Stage 8 — Modality ablation",
@@ -358,9 +378,7 @@ st.sidebar.caption("15-patient mini-scale implementation")
 stage_name = st.sidebar.radio("Navigate by stage", list(STAGES.keys()))
 
 st.sidebar.divider()
-st.sidebar.caption(
-    "Source code and result artifacts are read directly from the project folder."
-)
+st.sidebar.caption("Hosted demo uses committed source code, figures, and lightweight results.")
 
 
 # ---------------------------------------------------------------------
@@ -374,6 +392,13 @@ st.markdown(
     "processing → output → saved artifact → next consumer**, with tensor "
     "shapes, short theory, source code and Stage 7 results."
 )
+
+if DEMO_MODE:
+    st.info(
+        "**Hosted demo mode:** full TCGA/WSI data and model checkpoints are intentionally not included in the public repository. "
+        "This online dashboard therefore focuses on the committed source code, lightweight result tables, figures, and verified Stage 7–8 findings. "
+        "Run the project locally to inspect the full data-backed pipeline."
+    )
 
 metric_row([
     ("Patients", "15"),
@@ -1384,7 +1409,7 @@ Fusion + Contrastive L3""", language="text")
         )
         st.write("In this project: **True = padding**, **False = valid patch**.")
         st.code("Patient example: 144 × 384\n        ↓ pad\n162 × 384\n\n15 patients → (15,162,384)\nmask → (15,162)", language="text")
-        show_code(PATHS["test_wsi_branch_batch"], [r"pad", r"mask", r"162", r"384", r"WSIBranch"])
+        st.caption("The batch-padding behavior is documented and verified by the committed WSI branch tests; the original local helper `test_wsi_branch_batch.py` is not distributed in the public demo repository.")
 
     with st.expander("8 — wsi_branch.py: process the visual patch-token sequence", expanded=True):
         st.write(
@@ -1428,9 +1453,10 @@ Fusion + Contrastive L3""", language="text")
             "allowing the model to learn different patch-to-patch relationships."
         )
         st.code("(15,162,384)\n ↓ Block 1 → Block 2 → … → Block 6\n(15,162,384) = xI_384", language="text")
-        show_code(PATHS["wsi_transformer_encoder"], [r"class TransformerEncoder", r"class Block", r"num_heads", r"def forward"])
-        if not PATHS["wsi_transformer_encoder"].exists():
-            st.info("If the WSI TransformerEncoder is implemented inside `wsi_branch.py`, the WSIBranch source above is the relevant implementation file.")
+        if PATHS["wsi_transformer_encoder"] is not None:
+            show_code(PATHS["wsi_transformer_encoder"], [r"class TransformerEncoder", r"class Block", r"num_heads", r"def forward"])
+        else:
+            st.caption("The committed mini-scale repository keeps the WSI Transformer implementation inside `src/wsi_branch/wsi_branch.py`; no separate transformer_encoder.py file is required for the hosted demo.")
         st.markdown("### Concepts to remember")
         st.write(
             "**LayerNorm:** stabilizes features. **Self-attention:** lets patches exchange information. "
