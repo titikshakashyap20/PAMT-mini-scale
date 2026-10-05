@@ -1,5 +1,8 @@
 # PAMT: Mini-Scale Multimodal Survival Analysis
 
+> 🚀 **[Live Interactive Dashboard](https://pamt-mini-scale.streamlit.app/)**
+
+
 A mini-scale implementation of the **Pathology-Aware Multimodal Transformer (PAMT)** for multimodal survival analysis using transcriptomic and whole-slide image (WSI) data from **TCGA-BLCA**.
 
 This repository implements the major components of the PAMT pipeline, including pathway-aware gene representation, WSI feature extraction and processing, pathway–patch contrastive learning, cross-modal fusion, survival-risk prediction, Cox-based survival loss, and two additional exploratory interpretability analyses: **post-hoc modality ablation** and **attention-based WSI patch ranking**.
