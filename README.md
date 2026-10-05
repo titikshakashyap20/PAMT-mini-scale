@@ -2,9 +2,9 @@
 
 A mini-scale implementation of the **Pathology-Aware Multimodal Transformer (PAMT)** for multimodal survival analysis using transcriptomic and whole-slide image (WSI) data from **TCGA-BLCA**.
 
-This repository implements the major components of the PAMT pipeline, including pathway-aware gene representation, WSI feature extraction and processing, pathway–patch contrastive learning, cross-modal fusion, survival-risk prediction, and Cox-based survival loss.
+This repository implements the major components of the PAMT pipeline, including pathway-aware gene representation, WSI feature extraction and processing, pathway–patch contrastive learning, cross-modal fusion, survival-risk prediction, Cox-based survival loss, and two additional exploratory interpretability analyses: **post-hoc modality ablation** and **attention-based WSI patch ranking**.
 
-> **Scope:** This is a mini-scale research implementation using a small cohort of real TCGA-BLCA patients. It is intended for implementation study, experimentation, and reproducibility of the core pipeline rather than a full-scale reproduction of the original PAMT study.
+> **Scope:** This is a mini-scale research implementation using a small cohort of real TCGA-BLCA patients. It is intended for implementation study, experimentation, interpretability analysis, and reproducibility of the core pipeline rather than a full-scale reproduction of the original PAMT study.
 
 ---
 
@@ -20,6 +20,8 @@ This implementation combines:
 - **Cross-modal attention** for multimodal fusion
 - **Survival-risk prediction**
 - **Cox-based survival loss**
+- **Post-hoc modality masking** to explore modality contribution
+- **Attention-based patch ranking** to inspect learned pathway-to-patch attention
 
 The implementation follows the major stages of the PAMT architecture while operating on a substantially smaller cohort and computational scale.
 
@@ -85,6 +87,12 @@ The implemented pipeline consists of the following stages:
                          │
                          ▼
                Cox Survival Loss
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+              ▼                     ▼
+       Modality Ablation       Patch Ranking
+        (post-hoc masking)    (cross-attention)
 ```
 
 ---
@@ -249,23 +257,7 @@ stage4_5b_figures/
 
 The fusion module combines pathway representations with WSI patch representations.
 
-The implementation uses pathway representations as the **query** and image patch representations as **keys/values**:
-
-```text
-Pathway Q
-   │
-   ├───────────────┐
-   │               │
-   ▼               ▼
- Pathway        WSI patches
-   │               │
-   └───────┬───────┘
-           ▼
-   Cross-Attention
-           │
-           ▼
-    Fused representation
-```
+The implementation uses pathway representations as the **query** and image patch representations as **keys/values**.
 
 The fusion module uses:
 
@@ -320,12 +312,6 @@ The risk head contains:
 
 ```text
 373 trainable parameters
-```
-
-The implementation is available in:
-
-```text
-scripts/risk_head.py
 ```
 
 A visualization is provided in:
@@ -390,6 +376,133 @@ python scripts/evaluate_best.py
 
 ---
 
+# Stage 8 — Exploratory Modality and Attention Analysis
+
+Two additional analyses were added after the core PAMT pipeline.
+
+## 8.1 Post-hoc Modality Ablation
+
+The modality ablation analysis investigates how the trained multimodal model behaves when one modality's representation is masked at inference time.
+
+It evaluates three conditions:
+
+1. **Full multimodal** — original trained model
+2. **Gene-only / WSI masked** — WSI contribution removed at the risk head
+3. **WSI-only / gene masked** — gene representation removed before fusion
+
+Run:
+
+```bash
+python scripts/modality_ablation.py
+```
+
+The results are saved to:
+
+```text
+outputs/modality_ablation/
+├── modality_ablation_results.csv
+└── modality_ablation_risk_scores.csv
+```
+
+### Results
+
+| Condition | Cox L1 ↓ | C-index ↑ | Δ C-index vs Full |
+|---|---:|---:|---:|
+| **Full multimodal** | **0.000995** | **1.0000** | 0.0000 |
+| Gene-only / WSI masked | 1.973985 | 0.7703 | −0.2297 |
+| WSI-only / gene masked | 3.200701 | 0.5946 | −0.4054 |
+
+The full multimodal configuration substantially outperformed both post-hoc masked configurations on this mini cohort.
+
+Relative to the full model:
+
+- Removing WSI reduced C-index by **0.2297**
+- Removing the gene representation reduced C-index by **0.4054**
+
+Thus, within this trained model, masking the gene representation produced the larger performance degradation.
+
+> **Important:** These are **post-hoc masking results**, not separately retrained single-modality models. The analysis therefore measures the contribution of each modality within the existing trained model rather than comparing independently optimized gene-only and WSI-only models.
+
+The C-index is also exploratory because the same 15 patients were used to train the checkpoint.
+
+---
+
+## 8.2 Attention-Based WSI Patch Ranking
+
+The second analysis uses the Stage 5A cross-attention weights to rank WSI patches according to the attention they receive from pathway queries.
+
+The attention tensor is:
+
+```text
+(B, 16, 186, N)
+```
+
+A global patch score is calculated by averaging attention over:
+
+- 16 attention heads
+- 186 pathway queries
+
+Padded patches are excluded before ranking.
+
+Run:
+
+```bash
+python scripts/attention_patch_ranking.py
+```
+
+Optional arguments:
+
+```bash
+python scripts/attention_patch_ranking.py --top_k 10
+```
+
+To generate a detailed visualization for a selected patient:
+
+```bash
+python scripts/attention_patch_ranking.py --patient TCGA-4Z-AA7M
+```
+
+Results are saved to:
+
+```text
+outputs/attention_patch_ranking/
+├── patch_attention_scores.csv
+├── top_patches.csv
+├── attention_summary.csv
+├── top10_attention_heatmap.png
+└── <patient>_top_patches.png
+```
+
+### Observed attention behaviour
+
+Attention concentration varied substantially between patients.
+
+Examples:
+
+| Patient | Real patches | Top-1 | Top-3 | Top-5 | Top-10 |
+|---|---:|---:|---:|---:|---:|
+| **TCGA-4Z-AA7O** | 142 | 12.08% | 34.90% | 56.79% | **78.73%** |
+| **TCGA-2F-A9KR** | 126 | 12.94% | 38.20% | 62.30% | 63.86% |
+| **TCGA-2F-A9KT** | 137 | **19.97%** | 40.02% | 40.92% | 43.16% |
+| **TCGA-4Z-AA7W** | 123 | 4.01% | 11.90% | 19.73% | 38.83% |
+| **TCGA-2F-A9KO** | 144 | 0.70% | 2.09% | 3.48% | 6.95% |
+
+TCGA-4Z-AA7O showed the strongest concentration, with **78.73% of total attention assigned to its top 10 patches**.
+
+In contrast, TCGA-2F-A9KO showed nearly uniform attention. Its top-10 attention mass of **6.95%** is approximately equal to the uniform expectation:
+
+```text
+10 / 144 = 6.94%
+```
+
+### Interpretation
+
+These results suggest that the learned pathway-to-patch cross-attention exhibits **patient-specific spatial concentration**: some patients have attention concentrated on a small subset of patches, while others have much more diffuse attention.
+
+> **Important:** High attention indicates patches prioritized by the trained model. It does **not** by itself establish that a patch is cancerous, biologically causal, or pathologically more important. Pathological interpretation would require independent tissue/pathology annotations or additional validation.
+
+---
+
 # Results
 
 The current mini-scale experiment produced the following results for the best checkpoint:
@@ -414,11 +527,13 @@ Therefore, it should **not** be interpreted as evidence of generalization or cli
 
 A proper evaluation of predictive performance would require an independent validation/test cohort and substantially larger sample size.
 
+The Stage 8 modality and attention analyses are likewise **exploratory** and should be interpreted within the limitations described above.
+
 ---
 
 # Visual Results
 
-Selected intermediate results are included in:
+Selected intermediate and interpretability results are included in:
 
 ```text
 stage4_5b_figures/
@@ -431,11 +546,16 @@ These include:
 - Cross-attention heatmap
 - Risk-output visualization
 
-The repository also contains model-input visualizations under:
+Additional outputs are provided under:
 
 ```text
-outputs/visuals/
+outputs/
+├── visuals/
+├── modality_ablation/
+└── attention_patch_ranking/
 ```
+
+The repository also contains an interactive dashboard for exploring these results.
 
 ---
 
@@ -446,7 +566,7 @@ The project includes an interactive Streamlit dashboard for exploring the implem
 Launch it with:
 
 ```bash
-streamlit run dashboard.py
+streamlit run Dashboard.py
 ```
 
 The dashboard provides sections covering:
@@ -462,6 +582,8 @@ The dashboard provides sections covering:
 - Training
 - Best checkpoint
 - Results
+- Post-hoc modality ablation
+- Attention-based patch ranking
 
 The dashboard is designed to make the implementation easier to inspect and demonstrate during project presentations.
 
@@ -472,7 +594,7 @@ The dashboard is designed to make the implementation easier to inspect and demon
 ```text
 pamt_mini/
 │
-├── dashboard.py
+├── Dashboard.py
 ├── config.yaml
 ├── demo_gene_output.csv
 ├── requirements.txt
@@ -480,10 +602,12 @@ pamt_mini/
 ├── .gitignore
 │
 ├── scripts/
+│   ├── attention_patch_ranking.py
 │   ├── diagnose_reproducibility.py
 │   ├── evaluate_best.py
 │   ├── generate_model_input_panel.py
 │   ├── generate_stage4_5b_figures.py
+│   ├── modality_ablation.py
 │   ├── risk_head.py
 │   ├── run_dino_training.py
 │   ├── run_gene_pipeline.py
@@ -527,8 +651,8 @@ pamt_mini/
 Clone the repository:
 
 ```bash
-git clone <repository-url>
-cd pamt_mini
+git clone https://github.com/titikshakashyap20/PAMT-mini-scale.git
+cd PAMT-mini-scale
 ```
 
 Create a virtual environment:
@@ -637,8 +761,10 @@ Important differences include:
 - No independent validation/test cohort
 - Mini-scale WSI processing
 - Exploratory training rather than clinical-scale evaluation
+- Post-hoc modality analysis rather than separately retrained single-modality models
+- Exploratory attention ranking rather than pathological ground-truth validation
 
-The goal is to reproduce and study the **core multimodal architecture and computational pipeline**, rather than reproduce the exact experimental scale and reported results of the original paper.
+The goal is to reproduce and study the **core multimodal architecture and computational pipeline**, while also examining modality contribution and learned patch attention, rather than reproducing the exact experimental scale and reported results of the original paper.
 
 ---
 
@@ -669,6 +795,14 @@ The current implementation has several important limitations:
 6. **Exploratory results**
 
    The reported metrics demonstrate implementation behavior rather than statistically reliable clinical performance.
+
+7. **Post-hoc modality ablation**
+
+   The modality analysis masks representations in the existing trained model rather than retraining independent gene-only and WSI-only models.
+
+8. **Attention is not pathology ground truth**
+
+   High cross-attention scores identify model-prioritized patches but do not establish pathological relevance or causality without additional validation.
 
 ---
 
