@@ -1,0 +1,52 @@
+paths:
+  clinical: data/raw/blca_tcga_pan_can_atlas_2018/data_clinical_patient.txt
+  expression: data/raw/gene_expression.txt
+  kegg_gmt: data/raw/c2.cp.kegg_legacy.v2026.1.Hs.symbols.gmt
+  wsi_root: data/raw/wsi_data/tcga_blca
+  processed_gene_dir: data/processed/gene
+  processed_wsi_dir: data/processed/wsi
+  figures_dir: data/processed/figures
+  checkpoint_dir: data/processed/dino_checkpoints
+  manifest: data/raw/final_wsi_manifest.tsv
+
+sample:
+  n_patients: 15
+  seed: 42
+
+wsi_branch:
+  patch_size: 256
+  target_magnification: 20
+  tissue_bg_intensity_cutoff: 220
+  tissue_bg_fraction_threshold: 0.8
+  max_candidate_patches: 500
+  n_clusters: 50
+  patches_per_cluster: 4
+  dino_repo: "facebookresearch/dino:main"
+  dino_model: "dino_vits8"
+  embedding_batch_size: 32
+
+gene_branch:
+  n_pathways: 186
+
+dino_training:
+  patches_per_wsi_for_corpus: 60
+  total_corpus_cap: 800
+  center_momentum: 0.9
+  epochs: 10
+  batch_size: 8
+  global_crops: 2
+  global_crop_size: 128
+  global_crop_scale: [0.4, 1.0]
+  local_crops: 2
+  local_crop_size: 64
+  local_crop_scale: [0.05, 0.4]
+  student_temp: 0.1
+  teacher_temp: 0.04
+  teacher_momentum_start: 0.996
+  teacher_momentum_end: 1.0
+  optimizer: adamw
+  learning_rate: 0.0005
+  weight_decay: 0.04
+  drop_path_rate: 0.1
+  seed: 42
+  checkpoint_dir: data/processed/dino_checkpoints
