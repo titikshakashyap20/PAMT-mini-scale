@@ -1,0 +1,40 @@
+PIC INFONCE LAMBDA=0 CONTROL — FINAL SUMMARY
+==========================================================
+
+CONTROL PROTOCOL
+----------------
+Start checkpoint: data\processed\model_checkpoints\best_model.pt
+Start epoch: 467
+Epochs: 100
+Learning rate: 0.0001
+Lambda PIC: 0.0
+Removal: 0.2
+Tau: 0.0748829767
+Training seed: 42
+Shared evaluation seed: 2042
+Original best_model.pt was never modified.
+Existing PIC checkpoint was never modified.
+
+SHARED FRESH EVALUATION
+-----------------------
+Baseline, lambda=0 control, and PIC were evaluated on the
+same 10 fresh perturbation draws.
+
+Baseline re-ID: 0.24487455
+Control re-ID: 0.24799283
+PIC re-ID: 0.43272401
+
+PIC - Control re-ID gain: 0.18473118
+Control - Baseline re-ID gain: 0.00311828
+
+CONTROL DECISION RULE
+---------------------
+PASS if PIC - Control >= 0.10 AND Control <= Baseline + 0.10.
+PIC beats control by >= 0.10: True
+Control <= baseline + 0.10: True
+Control re-ID >= 0.40: False
+
+DECISION: PASS — PIC OUTPERFORMS THE LAMBDA=0 CONTROL
+
+This remains a same-15-patient exploratory experiment.
+It does not establish generalization to unseen patients.

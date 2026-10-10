@@ -1,0 +1,16 @@
+metric,value
+checkpoint_epoch,467
+num_patients,15
+num_pathways,186
+num_attention_heads,16
+num_draws_per_patient,5
+removal_fraction,0.2
+num_permutations_per_draw,200
+random_chance,0.005376344086021506
+real_reidentification_mean,0.2723297489931186
+permutation_null_mean,0.0054232974584214385
+permutation_null_std,0.00039125635849941487
+real_minus_null,0.26690645153469716
+real_to_null_ratio,50.21479110835749
+decision,SUPPORTED
+interpretation,Real pathway re-identification is substantially higher than the permutation null.

@@ -1,0 +1,45 @@
+PIC INFONCE SINGLE FINE-TUNE — FINAL SUMMARY
+==================================================
+
+Protocol
+--------
+Start checkpoint: data\processed\model_checkpoints\best_model.pt
+Start epoch: 467
+Epochs: 100
+Learning rate: 0.0001
+Lambda PIC: 0.32494345
+Removal: 0.2
+Tau: 0.0748829767
+Seed: 42
+
+Baseline
+--------
+Survival total: 7.74497795
+C-index: 1.00000000
+PIC InfoNCE: 4.73063993
+PIC re-ID: 0.21491039
+Mean map JS: 0.07616148
+
+Best combined epoch: 88
+Best survival epoch: 1
+
+Best combined checkpoint
+------------------------
+Survival total: 7.79627228
+C-index: 1.00000000
+PIC InfoNCE: 4.57061639
+PIC re-ID: 0.43655914
+Mean map JS: 0.07473830
+
+Pre-registered criteria
+-----------------------
+re-ID >= 0.408: True
+map JS >= 0.07016000: True
+C-index = 1.0: True
+survival total <= 15.5: True
+
+DECISION: PASS
+
+This is a same-15-patient exploratory fine-tune.
+It does not establish generalization to unseen patients.
+Original best_model.pt was never modified.

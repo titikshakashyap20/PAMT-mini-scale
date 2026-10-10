@@ -1,0 +1,16 @@
+metric,value
+checkpoint_epoch,467
+num_patients,15
+num_pathways,186
+num_attention_heads,16
+num_draws_per_patient,5
+removal_fraction,0.2
+overall_reidentification_accuracy,0.27232974910394264
+patients_in_required_range,14
+required_patients_in_range,10
+overall_low_threshold,0.05
+overall_high_threshold,0.8
+hard_fail_low,0.02
+hard_fail_high,0.9
+decision,PASS
+reason,The predefined diagnostic criteria were satisfied.
