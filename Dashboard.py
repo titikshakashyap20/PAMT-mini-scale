@@ -52,14 +52,22 @@ PATHS = {
     "train": p("scripts", "train.py"),
     "evaluate": p("scripts", "evaluate_best.py"),
     "results": p("scripts", "stage7_make_results.py"),
-    "modality_ablation": p("scripts", "modality_ablation.py"),
-    "attention_patch_ranking": p("scripts", "attention_patch_ranking.py"),
-    "modality_ablation_results": p("outputs", "modality_ablation", "modality_ablation_results.csv"),
-    "modality_ablation_risk_scores": p("outputs", "modality_ablation", "modality_ablation_risk_scores.csv"),
-    "attention_scores": p("outputs", "attention_patch_ranking", "patch_attention_scores.csv"),
-    "attention_top_patches": p("outputs", "attention_patch_ranking", "top_patches.csv"),
-    "attention_summary": p("outputs", "attention_patch_ranking", "attention_summary.csv"),
-    "attention_heatmap": p("outputs", "attention_patch_ranking", "top10_attention_heatmap.png"),
+
+    "pic_diagnostic": p("outputs", "pic_diagnostic", "pic_summary.csv"),
+    "pic_null_summary": p("outputs", "pic_diagnostic", "pic_null_summary.csv"),
+    "pic_reidentification": p("outputs", "pic_diagnostic", "patient_reidentification.csv"),
+    "pic_finetune_summary": p("outputs", "pic_infonce_finetune", "final_summary.txt"),
+    "pic_finetune_history": p("outputs", "pic_infonce_finetune", "training_history.csv"),
+    "pic_baseline_vs_pic": p("outputs", "pic_infonce_finetune", "baseline_vs_pic.csv"),
+    "pic_control_summary": p("outputs", "pic_infonce_control", "final_summary.txt"),
+    "pic_control_comparison": p("outputs", "pic_infonce_control", "control_vs_pic_comparison.csv"),
+    "pic_control_history": p("outputs", "pic_infonce_control", "training_history.csv"),
+    "pic_faithfulness_summary": p("outputs", "pic_faithfulness_diagnostic", "overall_summary.csv"),
+    "pic_faithfulness_patients": p("outputs", "pic_faithfulness_diagnostic", "patient_summary.csv"),
+    "pic_faithfulness_pathways": p("outputs", "pic_faithfulness_diagnostic", "pathway_faithfulness.csv"),
+    "pic_train": p("scripts", "train_pic_infonce_finetune.py"),
+    "pic_control_train": p("scripts", "train_pic_infonce_control.py"),
+
 }
 
 TRAIN_DIR = p("data", "processed", "training")
@@ -232,7 +240,7 @@ STAGES = {
     "7 — Training": "train",
     "7 — Best checkpoint": "evaluate",
     "7 — Results": "results",
-    "8 — Ablation + attention": "ablation_attention",
+    "8 - Pathway-Identity Consistency (PIC)": "pic",
     "📸 Visual Gallery": "visual_gallery",
 }
 
@@ -341,16 +349,6 @@ def render_visual_gallery():
             "Stage 7 — Patient risk ranking",
             None,
             "The trained model checkpoint and patient risk-score artifacts are local-only; the verified Stage 7 results are presented in the dedicated results section."
-        ),
-        (
-            "Stage 8 — Modality ablation",
-            None,
-            "The Stage 8 dashboard section contains the verified C-index/Cox-L1 charts directly from modality_ablation_results.csv."
-        ),
-        (
-            "Stage 8 — Attention-based patch ranking",
-            PATHS["attention_heatmap"],
-            "Top-10 attention concentration across patients, derived from Stage 5A cross-attention."
         ),
     ]
 
@@ -3150,317 +3148,138 @@ def render_results():
             st.write(f"○ `{path.relative_to(ROOT)}` not found")
 
 
-def render_ablation_attention():
-    st.header("Stage 8 — Post-hoc modality ablation + attention-based patch ranking")
 
-    st.info(
-        "Stage 8 contains two exploratory analyses performed after training: "
-        "(1) post-hoc modality masking using the existing best checkpoint and "
-        "(2) attention-based ranking of WSI patches using Stage 5A cross-attention. "
-        "Neither analysis retrains the model."
+def render_pic():
+    st.header("Stage 8 - Pathway-Identity Consistency (PIC)")
+
+    st.write(
+        "PIC is an exploratory regularization extension. It encourages "
+        "pathway-specific cross-attention maps to remain identifiable when "
+        "a subset of WSI patches is removed."
+    )
+    st.warning(
+        "All evaluations use the same 15 patients used during training. "
+        "These results are exploratory and do not establish generalization, "
+        "biological validity, or causal interpretability."
     )
 
-    # -----------------------------------------------------------------
-    # 8.1 Modality ablation
-    # -----------------------------------------------------------------
-    st.markdown("## 8.1 — Post-hoc modality ablation")
+    def read_csv_if_present(key):
+        path = PATHS[key]
+        if path.exists():
+            return pd.read_csv(path)
+        st.warning(f"Saved result not found: {path.relative_to(ROOT)}")
+        return None
 
-    st.markdown(
-        """
-**Purpose:** estimate how much each modality contributes to the predictions of
-the already-trained multimodal model by masking one modality at inference time.
+    def show_summary_csv(key, heading):
+        st.subheader(heading)
+        frame = read_csv_if_present(key)
+        if frame is not None:
+            st.dataframe(frame, width="stretch", hide_index=True)
+        return frame
 
-**Conditions**
-- **Full multimodal:** original trained model.
-- **Gene-only / WSI masked:** WSI contribution removed at the risk head.
-- **WSI-only / gene masked:** gene representation zeroed before fusion.
-
-The comparison uses **Cox L1 and C-index only**. The full training objective is
-not used here because L2 is parameter regularization and L3 is a multimodal
-alignment loss; neither is a meaningful post-hoc modality-performance metric.
-"""
+    st.markdown("## 8.1 - Initial pathway-identity diagnostic")
+    st.write(
+        "The diagnostic removes 20% of valid WSI patches and measures "
+        "whether each pathway's attention map is re-identified among the "
+        "perturbed maps. A permutation null provides a reference comparison."
     )
+    show_summary_csv("pic_diagnostic", "Initial diagnostic summary")
+    show_summary_csv("pic_null_summary", "Permutation-null comparison")
+    show_summary_csv("pic_reidentification", "Patient-level re-identification")
 
-    show_code(
-        PATHS["modality_ablation"],
-        [
-            r"POST-HOC MODALITY ABLATION",
-            r"gene_only_masked_wsi",
-            r"wsi_only_masked_gene",
-            r"cox_l1",
-        ],
-        title="Exact source code: modality ablation",
+    st.markdown("## 8.2 - PIC fine-tuning")
+    st.write(
+        "The fine-tuning objective adds an InfoNCE consistency term based "
+        "on pairwise Jensen-Shannon distances between clean and perturbed "
+        "pathway attention distributions. The PIC checkpoint is separate "
+        "from the original PAMT checkpoint."
     )
-
-    ablation_path = PATHS["modality_ablation_results"]
-    if ablation_path.exists():
-        ab = pd.read_csv(ablation_path)
-
-        st.markdown("### Verified results")
-        st.dataframe(
-            ab.round({
-                "cox_L1": 6,
-                "c_index": 6,
-                "delta_c_index_vs_full": 6,
-            }),
-            width="stretch",
-            hide_index=True,
+    st.latex(
+        r"\\mathcal{L}_{PIC}=-\\frac{1}{P}\\sum_p "
+        r"\\log\\frac{\\exp(-D_{pp}/\\tau)}"
+        r"{\\sum_q\\exp(-D_{pq}/\\tau)}"
+    )
+    if PATHS["pic_finetune_summary"].exists():
+        st.code(
+            PATHS["pic_finetune_summary"].read_text(
+                encoding="utf-8", errors="replace"
+            ),
+            language="text",
         )
-
-        lookup = {
-            row["condition"]: row
-            for _, row in ab.iterrows()
-        }
-
-        full_ci = float(lookup["full_multimodal"]["c_index"])
-        gene_ci = float(lookup["gene_only_masked_wsi"]["c_index"])
-        wsi_ci = float(lookup["wsi_only_masked_gene"]["c_index"])
-
-        metric_row([
-            ("Full multimodal C-index", f"{full_ci:.4f}"),
-            ("Gene-only C-index", f"{gene_ci:.4f}"),
-            ("WSI-only C-index", f"{wsi_ci:.4f}"),
-            ("Largest drop", f"{full_ci - wsi_ci:.4f}"),
-        ])
-
-        st.markdown("### C-index comparison")
-        plot_df = ab.set_index("condition")[["c_index"]].rename(
-            columns={"c_index": "C-index"}
-        )
-        st.bar_chart(plot_df)
-
-        st.markdown("### What the result shows")
-        st.success(
-            f"The full multimodal model has C-index {full_ci:.4f}. "
-            f"Masking the WSI contribution reduces it to {gene_ci:.4f} "
-            f"(Δ {gene_ci-full_ci:+.4f}), while masking the gene representation "
-            f"reduces it to {wsi_ci:.4f} (Δ {wsi_ci-full_ci:+.4f}). "
-            "Thus, both modalities contribute useful information in this trained "
-            "model, and gene-representation masking produces the larger performance "
-            "drop in this 15-patient experiment."
-        )
-
-        st.markdown("### Cox L1 comparison")
-        st.bar_chart(
-            ab.set_index("condition")[["cox_L1"]].rename(
-                columns={"cox_L1": "Cox L1"}
-            )
-        )
-
-        st.warning(
-            "**Interpretation boundary:** this is a post-hoc masking experiment, "
-            "not three separately retrained single-modality models. Therefore it "
-            "should not be described as proof that genes are intrinsically more "
-            "important than WSI. The C-index is also exploratory because the same "
-            "15 patients were used to train the checkpoint."
-        )
-
-        st.markdown("### Saved risk scores")
-        risk_path = PATHS["modality_ablation_risk_scores"]
-        if risk_path.exists():
-            risk_ab = pd.read_csv(risk_path)
-            st.dataframe(
-                risk_ab.round({"OS_MONTHS": 2, "risk_score": 4}),
-                width="stretch",
-                hide_index=True,
-            )
     else:
-        st.warning(
-            f"`{ablation_path.relative_to(ROOT)}` was not found. "
-            "Run `python scripts\\modality_ablation.py` from the project root first."
-        )
+        st.warning("PIC fine-tuning summary not found.")
 
-    # -----------------------------------------------------------------
-    # 8.2 Attention-based patch ranking
-    # -----------------------------------------------------------------
-    st.markdown("## 8.2 — Attention-based patch ranking")
+    show_summary_csv("pic_baseline_vs_pic", "Baseline versus PIC")
+    history = read_csv_if_present("pic_finetune_history")
+    if history is not None:
+        st.markdown("### Fine-tuning history")
+        st.dataframe(history, width="stretch", hide_index=True)
 
-    st.markdown(
-        """
-**Purpose:** convert the Stage 5A pathway-to-patch attention tensor into a
-global patch ranking for each patient.
-
-For each patient:
-
-\[
-A_{patch} = mean_{heads,pathway\ queries}(A)
-\]
-
-The implementation averages across **16 attention heads** and **186 pathway
-queries**, excludes padded patches, and ranks the remaining WSI patches by
-attention score.
-"""
+    st.markdown("## 8.3 - Lambda-zero control")
+    st.write(
+        "The control uses the same fine-tuning setup with the PIC loss "
+        "weight set to zero. Baseline, control, and PIC were compared "
+        "using the shared evaluation protocol and fresh perturbation draws."
     )
+    if PATHS["pic_control_summary"].exists():
+        st.code(
+            PATHS["pic_control_summary"].read_text(
+                encoding="utf-8", errors="replace"
+            ),
+            language="text",
+        )
+    else:
+        st.warning("PIC control summary not found.")
 
-    show_code(
-        PATHS["attention_patch_ranking"],
-        [
-            r"ATTENTION-BASED PATCH RANKING",
-            r"patch_attention",
-            r"top10_attention_heatmap",
-        ],
-        title="Exact source code: attention-based patch ranking",
+    show_summary_csv("pic_control_comparison", "Shared evaluation comparison")
+    control_history = read_csv_if_present("pic_control_history")
+    if control_history is not None:
+        with st.expander("Control training history"):
+            st.dataframe(control_history, width="stretch", hide_index=True)
+
+    st.markdown("## 8.4 - Attention-faithfulness diagnostic")
+    st.write(
+        "This analysis compares risk-score changes after attention-guided "
+        "patch deletion with changes after random deletion. A larger change "
+        "indicates greater sensitivity under this deletion test; it is not "
+        "proof that an attended patch is causally or biologically important."
     )
+    show_summary_csv("pic_faithfulness_summary", "Overall faithfulness results")
+    show_summary_csv("pic_faithfulness_patients", "Patient-level results")
 
-    summary_path = PATHS["attention_summary"]
-    if summary_path.exists():
-        attn = pd.read_csv(summary_path)
-
-        st.markdown("### Attention concentration by patient")
-        display_cols = [
-            "patient_id",
-            "num_real_patches",
-            "top1_attention_mass",
-            "top3_attention_mass",
-            "top5_attention_mass",
-            "top10_attention_mass",
-        ]
-        display = attn[display_cols].copy()
-        for col in display_cols[2:]:
-            display[col] = (display[col] * 100).round(2)
-        display = display.rename(columns={
-            "num_real_patches": "Real patches",
-            "top1_attention_mass": "Top 1 (%)",
-            "top3_attention_mass": "Top 3 (%)",
-            "top5_attention_mass": "Top 5 (%)",
-            "top10_attention_mass": "Top 10 (%)",
-        })
-        st.dataframe(display, width="stretch", hide_index=True)
-
-        attn["uniform_top10"] = 10.0 / attn["num_real_patches"]
-        attn["top10_deviation_from_uniform"] = (
-            attn["top10_attention_mass"] - attn["uniform_top10"]
-        ).abs()
-
-        most_concentrated = attn.loc[
-            attn["top10_attention_mass"].idxmax()
-        ]
-        closest_uniform = attn.loc[
-            attn["top10_deviation_from_uniform"].idxmin()
-        ]
-
-        mean_top10 = attn["top10_attention_mass"].mean()
-        max_top10 = most_concentrated["top10_attention_mass"]
-        max_top10_patient = most_concentrated["patient_id"]
-
-        metric_row([
-            ("Mean top-10 attention", f"{mean_top10*100:.2f}%"),
-            (
-                "Highest top-10 concentration",
-                f"{max_top10*100:.2f}%",
-            ),
-            (
-                "Highest-concentration patient",
-                str(max_top10_patient),
-            ),
-            (
-                "Patients analyzed",
-                str(len(attn)),
-            ),
-        ])
-
-        st.markdown("### Patient-specific concentration")
-
-        chart = attn[["patient_id", "top10_attention_mass"]].copy()
-        chart["top10_attention_mass"] *= 100
-        chart = chart.set_index("patient_id").rename(
-            columns={"top10_attention_mass": "Top-10 attention (%)"}
-        )
-        st.bar_chart(chart)
-
-        st.markdown("### Key finding")
-        uniform_expected = (
-            10.0 / float(closest_uniform["num_real_patches"])
-        )
-        st.success(
-            f"Attention is patient-specific rather than uniformly concentrated. "
-            f"{max_top10_patient} has {max_top10*100:.2f}% of its total attention "
-            f"in the top 10 patches. In contrast, {closest_uniform['patient_id']} "
-            f"is closest to the uniform top-10 expectation: "
-            f"{closest_uniform['top10_attention_mass']*100:.2f}% observed versus "
-            f"{uniform_expected*100:.2f}% expected for 10 equally weighted patches."
-        )
-
-        st.markdown("### Attention visualization")
-        heatmap_path = PATHS["attention_heatmap"]
-        if heatmap_path.exists():
-            st.image(
-                str(heatmap_path),
-                caption="Top-10 patch attention mass across the 15 patients.",
-                width="stretch",
-            )
-
-        top_path = PATHS["attention_top_patches"]
-        scores_path = PATHS["attention_scores"]
-        if top_path.exists():
-            top = pd.read_csv(top_path)
-
-            patient_options = list(top["patient_id"].drop_duplicates())
-            selected_patient = st.selectbox(
-                "Inspect top-ranked patches for one patient",
-                patient_options,
-                index=0,
-            )
-            patient_top = top[top["patient_id"] == selected_patient].copy()
+    pathway_results = read_csv_if_present("pic_faithfulness_pathways")
+    if pathway_results is not None:
+        with st.expander("Pathway-level faithfulness results"):
             st.dataframe(
-                patient_top.round({"attention_score": 6}),
+                pathway_results.head(100),
                 width="stretch",
                 hide_index=True,
             )
-
-            detail_path = (
-                ROOT / "outputs" / "attention_patch_ranking"
-                / f"{selected_patient}_top_patches.png"
-            )
-            if detail_path.exists():
-                st.image(
-                    str(detail_path),
-                    caption=f"Top-ranked patches: {selected_patient}",
-                    width="stretch",
-                )
-
-        st.markdown("### How to interpret the ranking")
-        st.markdown(
-            """
-- A higher score means the patch received more of the learned Stage 5A
-  pathway-to-patch attention after averaging over pathway queries and heads.
-- A high top-10 mass indicates concentrated attention; a value near the
-  uniform expectation \(10/N\) indicates diffuse attention.
-- The ranking identifies patches prioritized by the model. It does **not**
-  establish that those patches are cancerous, biologically causal, or
-  pathological ground truth.
-"""
-        )
-
-        st.warning(
-            "These attention results are interpretability evidence for the trained "
-            "model, not independent pathological validation. Biological claims "
-            "would require comparison against pathology annotations or another "
-            "external reference."
-        )
-
-        if scores_path.exists():
             st.caption(
-                f"Full patch-level scores: `{scores_path.relative_to(ROOT)}`"
+                "Showing up to 100 rows. The complete CSV remains available "
+                "in the project output folder."
             )
-    else:
-        st.warning(
-            f"`{summary_path.relative_to(ROOT)}` was not found. "
-            "Run `python scripts\\attention_patch_ranking.py` from the project root first."
-        )
 
-    # -----------------------------------------------------------------
-    # 8.3 Presentation-ready summary
-    # -----------------------------------------------------------------
-    st.markdown("## 8.3 — Presentation-ready summary")
+    st.markdown("## 8.5 - Implementation and limitations")
+    for key, label in [
+        ("pic_train", "PIC fine-tuning source"),
+        ("pic_control_train", "Lambda-zero control source"),
+    ]:
+        source = PATHS[key]
+        if source.exists():
+            with st.expander(label):
+                st.code(
+                    source.read_text(encoding="utf-8", errors="replace"),
+                    language="python",
+                )
+        else:
+            st.caption(f"Source file not available: {source.relative_to(ROOT)}")
+
     st.info(
-        "**Modality analysis:** the full multimodal model outperformed both "
-        "post-hoc masked configurations; C-index fell from 1.0000 to 0.7703 "
-        "when WSI was masked and to 0.5946 when the gene representation was "
-        "masked. **Attention analysis:** patch attention varied substantially "
-        "across patients, ranging from near-uniform distributions to strong "
-        "concentration on a small subset of WSI patches. Both findings are "
-        "exploratory because the analyses use the same 15 patients as training."
+        "Interpretation: the diagnostic and control results support further "
+        "investigation of pathway-identity consistency. They do not establish "
+        "external validity because the cohort contains only 15 patients and "
+        "there is no independent test cohort."
     )
 
 
@@ -3478,7 +3297,7 @@ renderer_map = {
     "7 — Training": render_train,
     "7 — Best checkpoint": render_evaluate,
     "7 — Results": render_results,
-    "8 — Ablation + attention": render_ablation_attention,
+    "8 - Pathway-Identity Consistency (PIC)": render_pic,
     "📸 Visual Gallery": render_visual_gallery,
 }
 
